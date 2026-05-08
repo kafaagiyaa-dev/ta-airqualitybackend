@@ -9,6 +9,7 @@ from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, db
 import os
+import json
 import logging
 
 # Import routes
@@ -46,14 +47,30 @@ os.makedirs(app.config['MODEL_FOLDER'], exist_ok=True)
 
 # =================== FIREBASE INIT ===================
 try:
-    cred_path = os.path.join(BASE_DIR, 'serviceAccountKey.json')
+    # Prioritas 1: environment variable (Railway/production)
+    service_account_env = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
 
-    if not os.path.exists(cred_path):
-        raise FileNotFoundError("serviceAccountKey.json not found")
+    if service_account_env:
+        service_account_info = json.loads(service_account_env)
+        cred = credentials.Certificate(service_account_info)
+        logger.info("✅ Firebase credential loaded from environment variable")
 
-    cred = credentials.Certificate(cred_path)
+    else:
+        # Prioritas 2: file lokal (development/localhost)
+        cred_path = os.path.join(BASE_DIR, 'serviceAccountKey.json')
+        if not os.path.exists(cred_path):
+            raise FileNotFoundError(
+                "serviceAccountKey.json not found dan "
+                "FIREBASE_SERVICE_ACCOUNT env variable tidak di-set"
+            )
+        cred = credentials.Certificate(cred_path)
+        logger.info("✅ Firebase credential loaded from serviceAccountKey.json")
+
     firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://ta-airquality-default-rtdb.firebaseio.com'
+        'databaseURL': os.environ.get(
+            "FIREBASE_DATABASE_URL",
+            "https://ta-airquality-default-rtdb.firebaseio.com"
+        )
     })
 
     logger.info("✅ Firebase initialized")
