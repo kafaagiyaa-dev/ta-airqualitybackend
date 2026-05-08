@@ -1,0 +1,27 @@
+{
+  "test_loss": 0.49847182631492615,
+  "test_mae": 0.6022658348083496,
+  "train_samples": 507,
+  "test_samples": 127,
+  "total_samples": 634,
+  "input_shape": [
+    48
+  ],
+  "output_shape": [
+    24
+  ],
+  "epochs_trained": 51,
+  "final_train_loss": 0.539979100227356,
+  "final_val_loss": 0.5009592771530151,
+  "final_train_mae": 0.5935066938400269,
+  "final_val_mae": 0.6039914488792419,
+  "negative_predictions": 0,
+  "model_architecture": {
+    "input": 48,
+    "hidden1": 128,
+    "hidden2": 64,
+    "hidden3": 32,
+    "output": 24,
+    "output_activation": "relu"
+  }
+}
