@@ -83,6 +83,14 @@ except Exception as e:
 app.register_blueprint(sensor_bp, url_prefix='/api')
 app.register_blueprint(prediction_bp, url_prefix='/api')
 
+# =================== LOAD ML MODEL (runs on gunicorn too) ===================
+with app.app_context():
+    logger.info("🔄 Loading ML model...")
+    if load_model():
+        logger.info("✅ ML forecaster loaded")
+    else:
+        logger.warning("⚠️ ML model not found - using rule-based classification")
+
 # =================== ROUTES ===================
 @app.route('/')
 def index():
@@ -119,13 +127,6 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("🚀 TA-AirQuality Backend Starting")
     print("=" * 60)
-
-    with app.app_context():
-        logger.info("🔄 Loading ML model...")
-        if load_model():
-            logger.info("✅ ML forecaster loaded")
-        else:
-            logger.warning("⚠️ ML model not found - using rule-based classification")
 
     app.run(
         host='0.0.0.0',
