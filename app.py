@@ -14,7 +14,7 @@ import logging
 
 # Import routes
 from routes.sensor_routes import sensor_bp
-from routes.prediction_routes import prediction_bp, load_model, is_model_ready
+from routes.prediction_routes import prediction_bp, load_models
 
 app = Flask(__name__)
 
@@ -86,7 +86,7 @@ app.register_blueprint(prediction_bp, url_prefix='/api')
 # =================== LOAD ML MODEL (runs on gunicorn too) ===================
 with app.app_context():
     logger.info("🔄 Loading ML model...")
-    if load_model():
+    if load_models():
         logger.info("✅ ML forecaster loaded")
     else:
         logger.warning("⚠️ ML model not found - using rule-based classification")
