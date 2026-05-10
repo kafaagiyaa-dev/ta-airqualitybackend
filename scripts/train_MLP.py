@@ -1,10 +1,10 @@
 """
-Train MLP Forecaster for Air Quality
-MATCHES PROPOSAL (Tabel 3.4):
-- Input layer : 48 nodes (flat: 12 timesteps × 4 features)
+Train MLP Forecaster for Air Quality - 8 Parameters
+Architecture:
+- Input layer : 96 nodes (flat: 12 timesteps × 8 features)
 - Hidden 1    : 64 neurons, ReLU
 - Hidden 2    : 32 neurons, ReLU
-- Output      : 4 neurons, Linear
+- Output      : 8 neurons, Linear
 """
 
 import numpy as np
@@ -19,7 +19,7 @@ from pathlib import Path
 import joblib
 
 # =====================================================
-# PATH SETUP — dari config.py backend
+# PATH SETUP
 # =====================================================
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -68,8 +68,9 @@ with open(DATA_DIR / 'preprocessing_config_mlp.json', 'r') as f:
 
 print("\n[MLP] ⚙️ Configuration loaded:")
 print(f"[MLP]    Model type  : {config['model_type']}")
-print(f"[MLP]    Input size  : {config['input_size']} (flat 48 nodes)")
+print(f"[MLP]    Input size  : {config['input_size']} (flat {config['input_size']} nodes)")
 print(f"[MLP]    Output size : {config['output_size']}")
+print(f"[MLP]    Features    : {config['features']}")
 print(f"[MLP]    Lookback    : {config['lookback']} timesteps")
 print(f"[MLP]    Horizon     : {config['horizon']} timesteps ahead")
 
@@ -90,21 +91,24 @@ assert X_train.shape[1] == config['input_size'],  "Input size mismatch!"
 assert y_train.shape[1] == config['output_size'], "Output size mismatch!"
 print(f"[MLP] ✅ Shape verification passed")
 
+INPUT_SIZE  = config['input_size']   # 96
+OUTPUT_SIZE = config['output_size']  # 8
+FEATURES    = config['features']
+
 # =====================================================
-# BUILD MLP MODEL (EXACT PROPOSAL ARCHITECTURE - TABEL 3.4)
+# BUILD MLP MODEL
 # =====================================================
-print("\n[MLP] 🏗️ Building MLP model (Tabel 3.4)...")
+print("\n[MLP] 🏗️ Building MLP model...")
 print("[MLP]    Architecture:")
-print("[MLP]    - Input layer  : 48 nodes (flat)")
-print("[MLP]    - Hidden layer 1: 64 neurons (ReLU)")
-print("[MLP]    - Hidden layer 2: 32 neurons (ReLU)")
-print("[MLP]    - Output layer : 4 neurons (Linear)")
-print("[MLP]    - NO dropout (not in proposal)")
+print(f"[MLP]    - Input layer   : {INPUT_SIZE} nodes (flat)")
+print(f"[MLP]    - Hidden layer 1: 64 neurons (ReLU)")
+print(f"[MLP]    - Hidden layer 2: 32 neurons (ReLU)")
+print(f"[MLP]    - Output layer  : {OUTPUT_SIZE} neurons (Linear)")
 
 model = Sequential([
-    Dense(64, activation='relu', input_shape=(48,), name='hidden1'),
+    Dense(64, activation='relu', input_shape=(INPUT_SIZE,), name='hidden1'),
     Dense(32, activation='relu', name='hidden2'),
-    Dense(4,  activation='linear', name='output')
+    Dense(OUTPUT_SIZE, activation='linear', name='output')
 ], name='AirQualityForecaster_MLP')
 
 model.compile(optimizer='adam', loss='mse', metrics=['mae'])
@@ -175,7 +179,7 @@ print(f"[MLP]    Loss (MSE): {test_loss:.4f}")
 print(f"[MLP]    MAE       : {test_mae:.4f}")
 
 # =====================================================
-# INFERENCE TIME MEASUREMENT (1000 ITERATIONS)
+# INFERENCE TIME MEASUREMENT
 # =====================================================
 print("\n[MLP] ⏱️ Measuring inference time (1000 iterations, single sample)...")
 
@@ -206,23 +210,24 @@ neg_count = (y_pred < 0).sum()
 print(f"\n[MLP] 🔍 Negative Prediction Check: {neg_count} found")
 
 if neg_count > 0:
-    features = ['CO', 'CO2', 'PM25', 'PM10']
-    for i, feat in enumerate(features):
+    for i, feat in enumerate(FEATURES):
         n = (y_pred[:, i] < 0).sum()
         if n > 0:
             print(f"[MLP]    {feat}: {n} negative predictions")
-    y_pred = np.maximum(y_pred, 0)
-    print(f"[MLP]    ✅ Clipped to >= 0")
+    # temp boleh minus, yang lain clip ke 0
+    non_temp_idx = [i for i, f in enumerate(FEATURES) if f != 'temp']
+    for idx in non_temp_idx:
+        y_pred[:, idx] = np.maximum(y_pred[:, idx], 0)
+    print(f"[MLP]    ✅ Clipped non-temp features to >= 0")
 else:
     print(f"[MLP]    ✅ No negative predictions!")
 
 mae_original  = np.abs(y_test_original - y_pred).mean()
 rmse_original = np.sqrt(((y_test_original - y_pred) ** 2).mean())
 
-features = ['CO', 'CO2', 'PM25', 'PM10']
 print(f"\n[MLP] 📊 Per-Feature MAE (original scale):")
 per_feature_mae = {}
-for i, feat in enumerate(features):
+for i, feat in enumerate(FEATURES):
     mae_f = np.abs(y_test_original[:, i] - y_pred[:, i]).mean()
     per_feature_mae[feat] = float(mae_f)
     print(f"[MLP]    {feat}: {mae_f:.4f}")
@@ -236,12 +241,12 @@ mape_original = np.abs((y_test_original[mask] - y_pred.reshape(y_test_original.s
                         y_test_original[mask]).mean() * 100
 print(f"[MLP]    MAPE: {mape_original:.2f}%")
 
-print(f"\n[MLP] 📋 Sample Predictions (first 5):")
-for i in range(min(5, len(y_pred))):
+print(f"\n[MLP] 📋 Sample Predictions (first 3):")
+for i in range(min(3, len(y_pred))):
     print(f"\n[MLP]    Sample {i+1}:")
-    print(f"[MLP]       Actual   : {dict(zip(features, y_test_original[i].round(2)))}")
-    print(f"[MLP]       Predicted: {dict(zip(features, y_pred[i].round(2)))}")
-    print(f"[MLP]       Error    : {dict(zip(features, np.abs(y_test_original[i] - y_pred[i]).round(2)))}")
+    print(f"[MLP]       Actual   : {dict(zip(FEATURES, y_test_original[i].round(3)))}")
+    print(f"[MLP]       Predicted: {dict(zip(FEATURES, y_pred[i].round(3)))}")
+    print(f"[MLP]       Error    : {dict(zip(FEATURES, np.abs(y_test_original[i] - y_pred[i]).round(3)))}")
 
 # =====================================================
 # SAVE METRICS
@@ -249,21 +254,21 @@ for i in range(min(5, len(y_pred))):
 metrics = {
     'model_architecture': {
         'type':              'MLP',
-        'input_nodes':       48,
+        'input_nodes':       INPUT_SIZE,
         'hidden1_neurons':   64,
         'hidden2_neurons':   32,
-        'output_nodes':      4,
+        'output_nodes':      OUTPUT_SIZE,
         'hidden_activation': 'relu',
         'output_activation': 'linear',
         'total_parameters':  int(total_params)
     },
     'training_config': {
-        'epochs':                   EPOCHS,
-        'batch_size':               BATCH_SIZE,
-        'optimizer':                'adam',
-        'loss':                     'mse',
-        'early_stopping_patience':  20,
-        'training_time_seconds':    round(training_time, 2)
+        'epochs':                  EPOCHS,
+        'batch_size':              BATCH_SIZE,
+        'optimizer':               'adam',
+        'loss':                    'mse',
+        'early_stopping_patience': 20,
+        'training_time_seconds':   round(training_time, 2)
     },
     'dataset': {
         'train_samples':  int(len(X_train)),
@@ -271,7 +276,7 @@ metrics = {
         'total_samples':  int(len(X_train) + len(X_test)),
         'lookback':       config['lookback'],
         'horizon':        config['horizon'],
-        'features':       config['features']
+        'features':       FEATURES
     },
     'results': {
         'test_loss_mse':                    float(test_loss),
@@ -304,7 +309,7 @@ fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 axes[0].plot(history.history['loss'],     label='Train Loss', linewidth=2)
 axes[0].plot(history.history['val_loss'], label='Val Loss',   linewidth=2)
-axes[0].set_title('MLP Loss (MSE)', fontsize=14, fontweight='bold')
+axes[0].set_title('MLP Loss (MSE) — 8 Features', fontsize=14, fontweight='bold')
 axes[0].set_xlabel('Epoch', fontsize=12)
 axes[0].set_ylabel('Mean Squared Error', fontsize=12)
 axes[0].legend(fontsize=11)
@@ -312,13 +317,13 @@ axes[0].grid(True, alpha=0.3)
 
 axes[1].plot(history.history['mae'],     label='Train MAE', linewidth=2)
 axes[1].plot(history.history['val_mae'], label='Val MAE',   linewidth=2)
-axes[1].set_title('MLP MAE', fontsize=14, fontweight='bold')
+axes[1].set_title('MLP MAE — 8 Features', fontsize=14, fontweight='bold')
 axes[1].set_xlabel('Epoch', fontsize=12)
 axes[1].set_ylabel('Mean Absolute Error', fontsize=12)
 axes[1].legend(fontsize=11)
 axes[1].grid(True, alpha=0.3)
 
-plt.suptitle('MLP Training History — Air Quality Forecaster', fontsize=15, fontweight='bold')
+plt.suptitle('MLP Training History — Air Quality Forecaster (8 Parameters)', fontsize=13, fontweight='bold')
 plt.tight_layout()
 
 plot_path = MODELS_DIR / 'training_history_mlp.png'
@@ -347,10 +352,8 @@ print(f"[MLP]    Epochs trained : {len(history.history['loss'])}")
 print(f"[MLP]    Parameters     : {total_params:,}")
 print(f"[MLP]    Inference time : {infer_time_ms:.4f} ms/sample")
 
-print(f"\n[MLP] 🎯 Model Characteristics:")
-print(f"[MLP]    ✅ Follows proposal Tabel 3.4 architecture exactly")
-print(f"[MLP]    ✅ Input FLAT (48) → Dense(64) → Dense(32) → Output(4, Linear)")
-print(f"[MLP]    ✅ No dropout (not in proposal)")
+print(f"\n[MLP] 🎯 Architecture:")
+print(f"[MLP]    Input FLAT ({INPUT_SIZE}) → Dense(64) → Dense(32) → Output({OUTPUT_SIZE}, Linear)")
 
 print("="*60)
 print("[MLP] 🚀 Next Step: Run train_LSTM.py then compare metrics")

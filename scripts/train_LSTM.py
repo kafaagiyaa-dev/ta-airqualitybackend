@@ -1,11 +1,11 @@
 """
-Train LSTM Forecaster for Air Quality
-MATCHES PROPOSAL (Tabel 3.5):
-- Input       : (12, 4)  — 12 timesteps × 4 features (3D)
+Train LSTM Forecaster for Air Quality - 8 Parameters
+Architecture:
+- Input       : (12, 8)  — 12 timesteps × 8 features (3D)
 - LSTM layer 1: 64 units, tanh/sigmoid (return_sequences=True)
 - LSTM layer 2: 32 units, tanh/sigmoid (return_sequences=False)
 - Dense layer : 32 neurons, ReLU
-- Output layer: 4 neurons, Linear
+- Output layer: 8 neurons, Linear
 """
 
 import numpy as np
@@ -72,7 +72,8 @@ print("\n[LSTM] ⚙️ Configuration loaded:")
 print(f"[LSTM]    Model type  : {config['model_type']}")
 print(f"[LSTM]    Input shape : {config['input_shape']} (timesteps, features) — 3D")
 print(f"[LSTM]    Output size : {config['output_size']}")
-print(f"[LSTM]    Scaler type : {config['scaler_type']} (4 means, bukan 48)")
+print(f"[LSTM]    Features    : {config['features']}")
+print(f"[LSTM]    Scaler type : {config['scaler_type']}")
 
 # =====================================================
 # LOAD DATA
@@ -92,28 +93,30 @@ assert X_train.shape[2] == config['input_shape'][1], "Features mismatch!"
 assert y_train.shape[1] == config['output_size'],    "Output mismatch!"
 print(f"[LSTM] ✅ Shape verification passed")
 
+TIMESTEPS  = config['input_shape'][0]  # 12
+N_FEATURES = config['input_shape'][1]  # 8
+OUTPUT_SIZE = config['output_size']    # 8
+FEATURES    = config['features']
+
 # =====================================================
-# BUILD LSTM MODEL (EXACT PROPOSAL ARCHITECTURE - TABEL 3.5)
+# BUILD LSTM MODEL
 # =====================================================
-print("\n[LSTM] 🏗️ Building LSTM model (Tabel 3.5)...")
+print("\n[LSTM] 🏗️ Building LSTM model...")
 print("[LSTM]    Architecture:")
-print(f"[LSTM]    - Input        : ({config['input_shape'][0]}, {config['input_shape'][1]}) 3D tensor")
+print(f"[LSTM]    - Input        : ({TIMESTEPS}, {N_FEATURES}) 3D tensor")
 print(f"[LSTM]    - LSTM layer 1 : 64 units (tanh, sigmoid gates, return_sequences=True)")
 print(f"[LSTM]    - LSTM layer 2 : 32 units (tanh, sigmoid gates, return_sequences=False)")
 print(f"[LSTM]    - Dense layer  : 32 neurons (ReLU)")
-print(f"[LSTM]    - Output layer : 4 neurons (Linear)")
+print(f"[LSTM]    - Output layer : {OUTPUT_SIZE} neurons (Linear)")
 print(f"[LSTM]    - NO dropout (not in proposal)")
-
-TIMESTEPS  = config['input_shape'][0]  # 12
-N_FEATURES = config['input_shape'][1]  # 4
 
 model = Sequential([
     LSTM(64, activation='tanh', recurrent_activation='sigmoid',
          return_sequences=True, input_shape=(TIMESTEPS, N_FEATURES), name='lstm_1'),
     LSTM(32, activation='tanh', recurrent_activation='sigmoid',
          return_sequences=False, name='lstm_2'),
-    Dense(32, activation='relu',   name='dense_hidden'),
-    Dense(4,  activation='linear', name='output')
+    Dense(32,          activation='relu',   name='dense_hidden'),
+    Dense(OUTPUT_SIZE, activation='linear', name='output')
 ], name='AirQualityForecaster_LSTM')
 
 model.compile(optimizer='adam', loss='mse', metrics=['mae'])
@@ -128,13 +131,13 @@ print(f"\n[LSTM] 📊 Total parameters: {total_params:,}")
 # COMPARE PARAMETER COUNT VS MLP
 # =====================================================
 mlp_metrics_path = MODELS_DIR / 'training_metrics_mlp.json'
-mlp_params      = None
-mlp_infer_time  = None
+mlp_params       = None
+mlp_infer_time   = None
 
 if mlp_metrics_path.exists():
     with open(mlp_metrics_path, 'r') as f:
         mlp_metrics = json.load(f)
-    mlp_params = mlp_metrics['model_architecture']['total_parameters']
+    mlp_params     = mlp_metrics['model_architecture']['total_parameters']
     mlp_infer_time = mlp_metrics.get('results', {}).get('inference_time_ms_per_sample')
 
     ratio = total_params / mlp_params if mlp_params > 0 else 0
@@ -241,23 +244,24 @@ neg_count = (y_pred < 0).sum()
 print(f"\n[LSTM] 🔍 Negative Prediction Check: {neg_count} found")
 
 if neg_count > 0:
-    features = ['CO', 'CO2', 'PM25', 'PM10']
-    for i, feat in enumerate(features):
+    for i, feat in enumerate(FEATURES):
         n = (y_pred[:, i] < 0).sum()
         if n > 0:
             print(f"[LSTM]    {feat}: {n} negative predictions")
-    y_pred = np.maximum(y_pred, 0)
-    print(f"[LSTM]    ✅ Clipped to >= 0")
+    # temp boleh minus, yang lain clip ke 0
+    non_temp_idx = [i for i, f in enumerate(FEATURES) if f != 'temp']
+    for idx in non_temp_idx:
+        y_pred[:, idx] = np.maximum(y_pred[:, idx], 0)
+    print(f"[LSTM]    ✅ Clipped non-temp features to >= 0")
 else:
     print(f"[LSTM]    ✅ No negative predictions!")
 
 mae_original  = np.abs(y_test_original - y_pred).mean()
 rmse_original = np.sqrt(((y_test_original - y_pred) ** 2).mean())
 
-features = ['CO', 'CO2', 'PM25', 'PM10']
 print(f"\n[LSTM] 📊 Per-Feature MAE (original scale):")
 per_feature_mae = {}
-for i, feat in enumerate(features):
+for i, feat in enumerate(FEATURES):
     mae_f = np.abs(y_test_original[:, i] - y_pred[:, i]).mean()
     per_feature_mae[feat] = float(mae_f)
     print(f"[LSTM]    {feat}: {mae_f:.4f}")
@@ -274,9 +278,9 @@ print(f"[LSTM]    MAPE: {mape_original:.2f}%")
 print(f"\n[LSTM] 📋 Sample Predictions (first 5):")
 for i in range(min(5, len(y_pred))):
     print(f"\n[LSTM]    Sample {i+1}:")
-    print(f"[LSTM]       Actual   : {dict(zip(features, y_test_original[i].round(2)))}")
-    print(f"[LSTM]       Predicted: {dict(zip(features, y_pred[i].round(2)))}")
-    print(f"[LSTM]       Error    : {dict(zip(features, np.abs(y_test_original[i] - y_pred[i]).round(2)))}")
+    print(f"[LSTM]       Actual   : {dict(zip(FEATURES, y_test_original[i].round(2)))}")
+    print(f"[LSTM]       Predicted: {dict(zip(FEATURES, y_pred[i].round(2)))}")
+    print(f"[LSTM]       Error    : {dict(zip(FEATURES, np.abs(y_test_original[i] - y_pred[i]).round(2)))}")
 
 # =====================================================
 # SAVE METRICS
@@ -289,7 +293,7 @@ metrics = {
         'lstm_layer1_units': 64,
         'lstm_layer2_units': 32,
         'dense_neurons':     32,
-        'output_nodes':      4,
+        'output_nodes':      OUTPUT_SIZE,
         'lstm_activation':   'tanh',
         'gate_activation':   'sigmoid',
         'dense_activation':  'relu',
@@ -310,7 +314,7 @@ metrics = {
         'total_samples':  int(len(X_train) + len(X_test)),
         'lookback':       config['lookback'],
         'horizon':        config['horizon'],
-        'features':       config['features']
+        'features':       FEATURES
     },
     'results': {
         'test_loss_mse':                    float(test_loss),
@@ -336,9 +340,9 @@ if mlp_params is not None:
         'param_ratio_lstm_vs_mlp': round(total_params / mlp_params, 2),
     }
     if mlp_infer_time:
-        metrics['comparison_vs_mlp']['mlp_inference_ms']           = mlp_infer_time
-        metrics['comparison_vs_mlp']['lstm_inference_ms']          = round(infer_time_ms, 4)
-        metrics['comparison_vs_mlp']['infer_ratio_lstm_vs_mlp']    = round(infer_time_ms / mlp_infer_time, 2)
+        metrics['comparison_vs_mlp']['mlp_inference_ms']        = mlp_infer_time
+        metrics['comparison_vs_mlp']['lstm_inference_ms']       = round(infer_time_ms, 4)
+        metrics['comparison_vs_mlp']['infer_ratio_lstm_vs_mlp'] = round(infer_time_ms / mlp_infer_time, 2)
 
 metrics_path = MODELS_DIR / 'training_metrics_lstm.json'
 with open(metrics_path, 'w') as f:
@@ -354,7 +358,7 @@ fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 axes[0].plot(history.history['loss'],     label='Train Loss', linewidth=2)
 axes[0].plot(history.history['val_loss'], label='Val Loss',   linewidth=2)
-axes[0].set_title('LSTM Loss (MSE)', fontsize=14, fontweight='bold')
+axes[0].set_title('LSTM Loss (MSE) — 8 Features', fontsize=14, fontweight='bold')
 axes[0].set_xlabel('Epoch', fontsize=12)
 axes[0].set_ylabel('Mean Squared Error', fontsize=12)
 axes[0].legend(fontsize=11)
@@ -362,13 +366,13 @@ axes[0].grid(True, alpha=0.3)
 
 axes[1].plot(history.history['mae'],     label='Train MAE', linewidth=2)
 axes[1].plot(history.history['val_mae'], label='Val MAE',   linewidth=2)
-axes[1].set_title('LSTM MAE', fontsize=14, fontweight='bold')
+axes[1].set_title('LSTM MAE — 8 Features', fontsize=14, fontweight='bold')
 axes[1].set_xlabel('Epoch', fontsize=12)
 axes[1].set_ylabel('Mean Absolute Error', fontsize=12)
 axes[1].legend(fontsize=11)
 axes[1].grid(True, alpha=0.3)
 
-plt.suptitle('LSTM Training History — Air Quality Forecaster', fontsize=15, fontweight='bold')
+plt.suptitle('LSTM Training History — Air Quality Forecaster (8 Parameters)', fontsize=13, fontweight='bold')
 plt.tight_layout()
 
 plot_path = MODELS_DIR / 'training_history_lstm.png'
@@ -406,9 +410,8 @@ if mlp_params is not None:
     print(f"[LSTM vs MLP]    → Ini adalah core trade-off analysis untuk kesimpulan proposal.")
 
 print(f"\n[LSTM] 🎯 Model Characteristics:")
-print(f"[LSTM]    ✅ Sesuai proposal Tabel 3.5")
-print(f"[LSTM]    ✅ LSTM(64) → LSTM(32) → Dense(32, ReLU) → Output(4, Linear)")
-print(f"[LSTM]    ✅ Input 3D (batch, 12, 4) — tidak di-flatten seperti MLP")
+print(f"[LSTM]    ✅ Input 3D (batch, 12, 8) — tidak di-flatten seperti MLP")
+print(f"[LSTM]    ✅ LSTM(64) → LSTM(32) → Dense(32, ReLU) → Output({OUTPUT_SIZE}, Linear)")
 print(f"[LSTM]    ✅ No dropout (not in proposal)")
 print(f"[LSTM]    ✅ Inference time diukur 1000 iterasi (sesuai proposal)")
 

@@ -1,9 +1,10 @@
 """
 Create sliding window sequences for LSTM forecasting
-MATCHES PROPOSAL (Tabel 3.5):
-- Input: (12, 4) shape — 12 timesteps × 4 features (3D, NOT flattened)
+MATCHES PROPOSAL:
+- Input: (12, 8) shape — 12 timesteps × 8 features (3D, NOT flattened)
 - Output: 1 timestep at t+12 (1 hour future)
 - Scaler: fit per-feature (not per-timestep-position like MLP)
+- Features: 8 parameters (CO, CO2, PM25, PM10, NO2, ozone, temp, humidity)
 """
 
 import pandas as pd
@@ -34,25 +35,25 @@ print(f"[LSTM] 📂 DATA_DIR  : {DATA_DIR}")
 print(f"[LSTM] 📂 MODELS_DIR: {MODELS_DIR}")
 
 # =====================================================
-# CONFIG (MATCHES PROPOSAL - SAME AS MLP)
+# CONFIG
 # =====================================================
 LOOKBACK  = 12       # 12 timesteps × 5 min = 1 hour history
 HORIZON   = 12       # Predict 12 steps ahead = 1 hour future
-FEATURES  = ['CO', 'CO2', 'PM25', 'PM10']
+FEATURES  = ['CO', 'CO2', 'PM25', 'PM10', 'NO2', 'ozone', 'temp', 'humidity']
 
 print(f"\n[LSTM] ⚙️ Configuration:")
-print(f"[LSTM]    Lookback window  : {LOOKBACK} timesteps (1 hour)")
+print(f"[LSTM]    Lookback window   : {LOOKBACK} timesteps (1 hour)")
 print(f"[LSTM]    Prediction horizon: {HORIZON} timesteps ahead (1 hour)")
-print(f"[LSTM]    Features         : {FEATURES}")
-print(f"[LSTM]    Input shape      : ({LOOKBACK}, {len(FEATURES)}) = 3D tensor (NOT flat)")
-print(f"[LSTM]    Output size      : {len(FEATURES)} nodes (single timestep)")
-print(f"\n[LSTM]    NOTE: LSTM uses 3D input  (n, 12, 4) — berbeda dari MLP")
-print(f"[LSTM]          MLP  uses 2D input  (n, 48)   — flat")
-print(f"[LSTM]          Scaler LSTM: per-feature (4 means)")
-print(f"[LSTM]          Scaler MLP : per-timestep-feature (48 means)")
+print(f"[LSTM]    Features          : {FEATURES}")
+print(f"[LSTM]    Input shape       : ({LOOKBACK}, {len(FEATURES)}) = 3D tensor (NOT flat)")
+print(f"[LSTM]    Output size       : {len(FEATURES)} nodes (single timestep)")
+print(f"\n[LSTM]    NOTE: LSTM uses 3D input  (n, 12, 8) — berbeda dari MLP")
+print(f"[LSTM]          MLP  uses 2D input  (n, 96)   — flat")
+print(f"[LSTM]          Scaler LSTM: per-feature (8 means)")
+print(f"[LSTM]          Scaler MLP : per-timestep-feature (96 means)")
 
 # =====================================================
-# LOAD DATA (SAME CSV AS MLP)
+# LOAD DATA
 # =====================================================
 csv_path = DATA_DIR / "sensor_data_raw.csv"
 
@@ -76,7 +77,9 @@ if missing > 0:
     print(f"[LSTM]    Removing {missing} missing values...")
     df = df.dropna(subset=FEATURES)
 
-df = df[(df[FEATURES] >= 0).all(axis=1)]
+# temp boleh minus, yang lain tidak
+NON_NEGATIVE = ['CO', 'CO2', 'PM25', 'PM10', 'NO2', 'ozone', 'humidity']
+df = df[(df[NON_NEGATIVE] >= 0).all(axis=1)]
 print(f"[LSTM] ✅ After validation: {len(df)} samples")
 
 min_required = LOOKBACK + HORIZON
@@ -112,9 +115,9 @@ print(f"\n[LSTM] ✅ Sequences created:")
 print(f"[LSTM]    X shape: {X.shape} (n_sequences, lookback, n_features) ← 3D untuk LSTM")
 print(f"[LSTM]    y shape: {y.shape} (n_sequences, n_features)")
 
-assert X.shape[1] == LOOKBACK,       f"Lookback mismatch: {X.shape[1]} != {LOOKBACK}"
-assert X.shape[2] == len(FEATURES),  f"Features mismatch: {X.shape[2]} != {len(FEATURES)}"
-assert y.shape[1] == len(FEATURES),  f"Output features mismatch: {y.shape[1]} != {len(FEATURES)}"
+assert X.shape[1] == LOOKBACK,      f"Lookback mismatch: {X.shape[1]} != {LOOKBACK}"
+assert X.shape[2] == len(FEATURES), f"Features mismatch: {X.shape[2]} != {len(FEATURES)}"
+assert y.shape[1] == len(FEATURES), f"Output features mismatch: {y.shape[1]} != {len(FEATURES)}"
 print(f"[LSTM] ✅ Shape verification passed")
 
 # =====================================================
@@ -130,12 +133,10 @@ print(f"[LSTM]    Train: {len(X_train)} | Test: {len(X_test)}")
 
 # =====================================================
 # NORMALIZATION — PER-FEATURE (CRITICAL DIFFERENCE VS MLP)
+# MLP  scaler_X: fit on (n, 96) → 96 means
+# LSTM scaler_X: fit on (n*12, 8) → 8 means (one per feature)
 # =====================================================
-# MLP  scaler_X: fit on (n, 48) → 48 means (one per timestep-feature combo)
-# LSTM scaler_X: fit on (n*12, 4) → 4 means (one per feature)
-# Ini memastikan scaling konsisten terlepas dari posisi timestep.
-# =====================================================
-print(f"\n[LSTM] 📊 Normalizing data (per-feature StandardScaler — 4 means, bukan 48)...")
+print(f"\n[LSTM] 📊 Normalizing data (per-feature StandardScaler — 8 means, bukan 96)...")
 
 n_train, T, F = X_train.shape
 
@@ -154,8 +155,8 @@ y_train_scaled = scaler_y_lstm.fit_transform(y_train)
 y_test_scaled  = scaler_y_lstm.transform(y_test)
 
 print(f"[LSTM] ✅ Normalization complete")
-print(f"[LSTM]    scaler_X_lstm: mean shape = {scaler_X_lstm.mean_.shape} (4 features, bukan 48)")
-print(f"[LSTM]    scaler_y_lstm: mean shape = {scaler_y_lstm.mean_.shape}")
+print(f"[LSTM]    scaler_X_lstm: mean shape = {scaler_X_lstm.mean_.shape} (8 features, bukan 96)")
+print(f"[LSTM]    scaler_y_lstm: mean shape = {scaler_y_lstm.mean_.shape} (8 features)")
 
 # =====================================================
 # SCALER VERIFICATION
@@ -191,14 +192,14 @@ print(f"[LSTM] ✅ Scalers saved: scaler_X_lstm.pkl, scaler_y_lstm.pkl")
 # SAVE CONFIGURATION
 # =====================================================
 config_lstm = {
-    'model_type':   'LSTM',
-    'lookback':     LOOKBACK,
-    'horizon':      HORIZON,
-    'features':     FEATURES,
-    'input_shape':  [LOOKBACK, len(FEATURES)],
-    'input_format': '3D_sequence',
-    'output_size':  len(FEATURES),
-    'scaler_type':  'per_feature',
+    'model_type':    'LSTM',
+    'lookback':      LOOKBACK,
+    'horizon':       HORIZON,
+    'features':      FEATURES,
+    'input_shape':   [LOOKBACK, len(FEATURES)],
+    'input_format':  '3D_sequence',
+    'output_size':   len(FEATURES),
+    'scaler_type':   'per_feature',
     'train_samples': len(X_train),
     'test_samples':  len(X_test),
     'total_samples': len(X_train) + len(X_test)
@@ -219,8 +220,8 @@ print("="*60)
 print(f"\n[LSTM] 📊 Dataset Summary:")
 print(f"[LSTM]    Total sequences : {len(X_train) + len(X_test)}")
 print(f"[LSTM]    Train/Test split: {len(X_train)}/{len(X_test)}")
-print(f"[LSTM]    Input shape     : (batch, 12, 4) — 3D tensor untuk LSTM")
-print(f"[LSTM]    Output shape    : (batch, 4) — single timestep prediction")
+print(f"[LSTM]    Input shape     : (batch, 12, 8) — 3D tensor untuk LSTM")
+print(f"[LSTM]    Output shape    : (batch, 8) — single timestep prediction")
 
 print(f"\n[LSTM] 📁 Files created:")
 print(f"[LSTM]    ✅ {DATA_DIR / 'X_train_lstm.npy'}")
@@ -231,6 +232,6 @@ print(f"[LSTM]    ✅ {MODELS_DIR / 'scaler_X_lstm.pkl'}")
 print(f"[LSTM]    ✅ {MODELS_DIR / 'scaler_y_lstm.pkl'}")
 print(f"[LSTM]    ✅ {config_path}")
 
-print(f"\n[LSTM] ⚠️  MLP files (X_train_mlp.npy, scaler_X_mlp.pkl, dll.) TIDAK diubah.")
+print(f"\n[LSTM] ⚠️  MLP files TIDAK diubah oleh script ini.")
 print(f"\n[LSTM] 🚀 Next step: python train_LSTM.py")
 print("="*60)

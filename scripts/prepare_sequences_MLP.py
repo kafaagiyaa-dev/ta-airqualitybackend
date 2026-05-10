@@ -3,6 +3,7 @@ Create sliding window sequences for forecasting
 MATCHES PROPOSAL: Predict single timestep 1 hour ahead
 - Input: 12 timesteps (1 hour history)
 - Output: 1 timestep at t+12 (1 hour future)
+- Features: 8 parameters (CO, CO2, PM25, PM10, NO2, ozone, temp, humidity)
 """
 
 import pandas as pd
@@ -10,6 +11,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import joblib
+import json
 from pathlib import Path
 
 # =====================================================
@@ -32,18 +34,18 @@ print(f"[MLP] 📂 DATA_DIR  : {DATA_DIR}")
 print(f"[MLP] 📂 MODELS_DIR: {MODELS_DIR}")
 
 # =====================================================
-# CONFIG (MATCHES PROPOSAL)
+# CONFIG
 # =====================================================
 LOOKBACK = 12       # 12 timesteps × 5 min = 1 hour history
-HORIZON = 12        # Predict 12 steps ahead = 1 hour future
-FEATURES = ['CO', 'CO2', 'PM25', 'PM10']
+HORIZON  = 12       # Predict 12 steps ahead = 1 hour future
+FEATURES = ['CO', 'CO2', 'PM25', 'PM10', 'NO2', 'ozone', 'temp', 'humidity']
 
 print(f"\n[MLP] ⚙️ Configuration:")
-print(f"[MLP]    Lookback window  : {LOOKBACK} timesteps (1 hour)")
+print(f"[MLP]    Lookback window   : {LOOKBACK} timesteps (1 hour)")
 print(f"[MLP]    Prediction horizon: {HORIZON} timesteps ahead (1 hour)")
-print(f"[MLP]    Features         : {FEATURES}")
-print(f"[MLP]    Input size       : {LOOKBACK * len(FEATURES)} = 48 nodes (FLAT)")
-print(f"[MLP]    Output size      : {len(FEATURES)} = 4 nodes (single timestep)")
+print(f"[MLP]    Features          : {FEATURES}")
+print(f"[MLP]    Input size        : {LOOKBACK * len(FEATURES)} = 96 nodes (FLAT)")
+print(f"[MLP]    Output size       : {len(FEATURES)} = 8 nodes (single timestep)")
 
 # =====================================================
 # LOAD DATA
@@ -70,12 +72,14 @@ if missing > 0:
     print(f"[MLP]    Removing {missing} missing values...")
     df = df.dropna(subset=FEATURES)
 
-for col in FEATURES:
+# Check negative values (temp boleh minus)
+NON_NEGATIVE = ['CO', 'CO2', 'PM25', 'PM10', 'NO2', 'ozone', 'humidity']
+for col in NON_NEGATIVE:
     neg_count = (df[col] < 0).sum()
     if neg_count > 0:
         print(f"[MLP]    ⚠️ {col}: {neg_count} negative values found")
 
-df = df[(df[FEATURES] >= 0).all(axis=1)]
+df = df[(df[NON_NEGATIVE] >= 0).all(axis=1)]
 print(f"[MLP] ✅ After validation: {len(df)} samples")
 
 min_required = LOOKBACK + HORIZON
@@ -94,7 +98,6 @@ print(f"[MLP] 📐 Data shape: {data.shape}")
 def create_sequences_single_step(data, lookback, horizon):
     """
     Create sequences for single-step prediction
-
     Returns:
         X: (n_sequences, lookback, n_features) - input sequences
         y: (n_sequences, n_features) - target at t+horizon
@@ -117,19 +120,19 @@ if len(X) == 0:
     print(f"\n[MLP] ❌ ERROR: No sequences created!")
     exit(1)
 
-assert X.shape[1] == LOOKBACK,       f"Lookback mismatch: {X.shape[1]} != {LOOKBACK}"
-assert X.shape[2] == len(FEATURES),  f"Features mismatch: {X.shape[2]} != {len(FEATURES)}"
-assert y.shape[1] == len(FEATURES),  f"Output features mismatch: {y.shape[1]} != {len(FEATURES)}"
+assert X.shape[1] == LOOKBACK,      f"Lookback mismatch: {X.shape[1]} != {LOOKBACK}"
+assert X.shape[2] == len(FEATURES), f"Features mismatch: {X.shape[2]} != {len(FEATURES)}"
+assert y.shape[1] == len(FEATURES), f"Output features mismatch: {y.shape[1]} != {len(FEATURES)}"
 print(f"[MLP] ✅ Shape verification passed")
 
 # =====================================================
 # FLATTEN INPUT FOR MLP
 # =====================================================
-X_flat = X.reshape(X.shape[0], -1)  # (n_samples, 48)
+X_flat = X.reshape(X.shape[0], -1)  # (n_samples, 96)
 
 print(f"\n[MLP] 📏 Flattened for MLP input:")
-print(f"[MLP]    X_flat shape: {X_flat.shape} → 48 input nodes (12 timesteps × 4 features)")
-print(f"[MLP]    y shape     : {y.shape} → 4 output nodes")
+print(f"[MLP]    X_flat shape: {X_flat.shape} → 96 input nodes (12 timesteps × 8 features)")
+print(f"[MLP]    y shape     : {y.shape} → 8 output nodes")
 
 # =====================================================
 # TRAIN TEST SPLIT (TIME SERIES SAFE - NO SHUFFLE)
@@ -146,9 +149,9 @@ print(f"[MLP]    Total        : {len(X_train) + len(X_test)}")
 
 # =====================================================
 # NORMALIZATION
-# MLP scaler_X: fit on (n, 48) → 48 means (one per timestep-feature combo)
+# MLP scaler_X: fit on (n, 96) → 96 means (one per timestep-feature combo)
 # =====================================================
-print(f"\n[MLP] 📊 Normalizing data (StandardScaler — fit on flattened 48 features)...")
+print(f"\n[MLP] 📊 Normalizing data (StandardScaler — fit on flattened 96 features)...")
 
 scaler_X = StandardScaler()
 scaler_y = StandardScaler()
@@ -160,8 +163,8 @@ y_train_scaled = scaler_y.fit_transform(y_train)
 y_test_scaled  = scaler_y.transform(y_test)
 
 print(f"[MLP] ✅ Normalization complete")
-print(f"[MLP]    scaler_X: mean shape = {scaler_X.mean_.shape} (48 timestep-feature positions)")
-print(f"[MLP]    scaler_y: mean shape = {scaler_y.mean_.shape}")
+print(f"[MLP]    scaler_X: mean shape = {scaler_X.mean_.shape} (96 timestep-feature positions)")
+print(f"[MLP]    scaler_y: mean shape = {scaler_y.mean_.shape} (8 features)")
 
 # =====================================================
 # SCALER VERIFICATION
@@ -196,17 +199,16 @@ print(f"[MLP] ✅ Scalers saved: scaler_X_mlp.pkl, scaler_y_mlp.pkl")
 # =====================================================
 # SAVE CONFIGURATION
 # =====================================================
-import json
 config = {
-    'model_type': 'MLP',
-    'lookback': LOOKBACK,
-    'horizon': HORIZON,
-    'features': FEATURES,
-    'input_size': LOOKBACK * len(FEATURES),
-    'output_size': len(FEATURES),
-    'input_format': 'flat_2D',
+    'model_type':    'MLP',
+    'lookback':      LOOKBACK,
+    'horizon':       HORIZON,
+    'features':      FEATURES,
+    'input_size':    LOOKBACK * len(FEATURES),
+    'output_size':   len(FEATURES),
+    'input_format':  'flat_2D',
     'train_samples': len(X_train),
-    'test_samples': len(X_test),
+    'test_samples':  len(X_test),
     'total_samples': len(X_train) + len(X_test)
 }
 
@@ -224,8 +226,8 @@ print("="*60)
 print(f"\n[MLP] 📊 Dataset Summary:")
 print(f"[MLP]    Total sequences : {len(X_train) + len(X_test)}")
 print(f"[MLP]    Train/Test split: {len(X_train)}/{len(X_test)}")
-print(f"[MLP]    Input shape     : (batch, 48) — FLAT 12 timesteps × 4 features")
-print(f"[MLP]    Output shape    : (batch, 4)  — single timestep prediction")
+print(f"[MLP]    Input shape     : (batch, 96) — FLAT 12 timesteps × 8 features")
+print(f"[MLP]    Output shape    : (batch, 8)  — single timestep prediction")
 print(f"[MLP]    Prediction target: Values at t+{HORIZON} (1 hour ahead)")
 
 print(f"\n[MLP] 📁 Files created:")

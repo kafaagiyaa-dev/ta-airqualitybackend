@@ -1,6 +1,7 @@
 """
 Prediction Routes - ML Air Quality Forecasting
-WITH FORECASTER SUPPORT + MAE METRICS + NEGATIVE VALUE PROTECTION
+Supports MLP and LSTM models with 8 features:
+  CO, CO2, PM25, PM10, NO2, ozone, temp, humidity
 """
 
 from flask import Blueprint, jsonify, current_app
@@ -10,363 +11,422 @@ from datetime import datetime, timedelta
 
 prediction_bp = Blueprint('prediction', __name__)
 
-# ===================== GLOBAL ML ASSETS =====================
-model = None
-scaler_X = None
-scaler_y = None
-model_mae = 0.33  # Default from training (will be loaded if metrics file exists)
+# =====================================================
+# CONSTANTS
+# =====================================================
+FEATURES   = ['CO', 'CO2', 'PM25', 'PM10', 'NO2', 'ozone', 'temp', 'humidity']
+TEMP_IDX   = FEATURES.index('temp')   # index 6 — allowed to be negative
+LOOKBACK   = 12                        # timesteps needed from Firebase
 
-CLASS_NAMES = ['BAIK', 'WASPADA', 'BURUK']
+# =====================================================
+# GLOBAL ML ASSETS — MLP
+# =====================================================
+mlp_model    = None
+mlp_scaler_X = None
+mlp_scaler_y = None
+mlp_mae      = None   # loaded from training_metrics_mlp.json
 
-# ===================== LOAD MODEL =====================
-def load_model():
-    global model, scaler_X, scaler_y, model_mae
+# =====================================================
+# GLOBAL ML ASSETS — LSTM
+# =====================================================
+lstm_model    = None
+lstm_scaler_X = None
+lstm_scaler_y = None
+lstm_mae      = None  # loaded from training_metrics_lstm.json
+
+
+# =====================================================
+# LOAD MODELS
+# =====================================================
+def load_models():
+    """Load both MLP and LSTM models with their scalers and metrics."""
+    global mlp_model, mlp_scaler_X, mlp_scaler_y, mlp_mae
+    global lstm_model, lstm_scaler_X, lstm_scaler_y, lstm_mae
+
+    import tensorflow as tf
+    import joblib
+    import json
+
+    model_folder = current_app.config['MODEL_FOLDER']
+
+    # ── MLP ──────────────────────────────────────────
+    mlp_model_path    = os.path.join(model_folder, 'air_quality_mlp.h5')
+    mlp_scaler_X_path = os.path.join(model_folder, 'scaler_X_mlp.pkl')
+    mlp_scaler_y_path = os.path.join(model_folder, 'scaler_y_mlp.pkl')
+    mlp_metrics_path  = os.path.join(model_folder, 'training_metrics_mlp.json')
+
     try:
-        import tensorflow as tf
-        import joblib
-        import json
-
-        model_path = os.path.join(current_app.config['MODEL_FOLDER'], 'air_quality_forecaster.h5')
-        scaler_X_path = os.path.join(current_app.config['MODEL_FOLDER'], 'scaler_X.pkl')
-        scaler_y_path = os.path.join(current_app.config['MODEL_FOLDER'], 'scaler_y.pkl')
-        metrics_path = os.path.join(current_app.config['MODEL_FOLDER'], 'metrics.json')
-
-        if not os.path.exists(model_path):
-            print(f"❌ Model not found: {model_path}")
-            return False
-
-        model = tf.keras.models.load_model(model_path)
-        print(f"✅ Forecaster loaded: {model_path}")
-        print(f"   Output shape: {model.output_shape}")  # ← tells you if it's (1,4) or (1,24)
-
-        if os.path.exists(scaler_X_path) and os.path.exists(scaler_y_path):
-            scaler_X = joblib.load(scaler_X_path)
-            scaler_y = joblib.load(scaler_y_path)
-            print(f"✅ Scalers loaded")
+        if not os.path.exists(mlp_model_path):
+            print(f"❌ [MLP] Model not found: {mlp_model_path}")
         else:
-            print("⚠️ Scalers not found")
-            return False
+            mlp_model    = tf.keras.models.load_model(mlp_model_path)
+            mlp_scaler_X = joblib.load(mlp_scaler_X_path)
+            mlp_scaler_y = joblib.load(mlp_scaler_y_path)
+            print(f"✅ [MLP] Model loaded | input: {mlp_model.input_shape} | output: {mlp_model.output_shape}")
 
-        if os.path.exists(metrics_path):
-            with open(metrics_path, 'r') as f:
-                metrics = json.load(f)
-                model_mae = metrics.get('test_mae', 0.33)
-                print(f"✅ Metrics loaded: MAE = {model_mae}")
-        else:
-            print(f"⚠️ Metrics file not found, using default MAE = {model_mae}")
-
-        return True
-
+            if os.path.exists(mlp_metrics_path):
+                with open(mlp_metrics_path, 'r') as f:
+                    m = json.load(f)
+                mlp_mae = m['results']['test_mae_original']
+                print(f"✅ [MLP] MAE (original scale): {mlp_mae}")
+            else:
+                mlp_mae = None
+                print(f"⚠️ [MLP] Metrics file not found")
     except Exception as e:
-        print(f"❌ Failed to load ML assets: {str(e)}")
-        model = None
-        scaler_X = None
-        scaler_y = None
-        return False
+        print(f"❌ [MLP] Load failed: {e}")
+        mlp_model = mlp_scaler_X = mlp_scaler_y = None
+
+    # ── LSTM ─────────────────────────────────────────
+    lstm_model_path    = os.path.join(model_folder, 'air_quality_lstm.h5')
+    lstm_scaler_X_path = os.path.join(model_folder, 'scaler_X_lstm.pkl')
+    lstm_scaler_y_path = os.path.join(model_folder, 'scaler_y_lstm.pkl')
+    lstm_metrics_path  = os.path.join(model_folder, 'training_metrics_lstm.json')
+
+    try:
+        if not os.path.exists(lstm_model_path):
+            print(f"❌ [LSTM] Model not found: {lstm_model_path}")
+        else:
+            lstm_model    = tf.keras.models.load_model(lstm_model_path)
+            lstm_scaler_X = joblib.load(lstm_scaler_X_path)
+            lstm_scaler_y = joblib.load(lstm_scaler_y_path)
+            print(f"✅ [LSTM] Model loaded | input: {lstm_model.input_shape} | output: {lstm_model.output_shape}")
+
+            if os.path.exists(lstm_metrics_path):
+                with open(lstm_metrics_path, 'r') as f:
+                    m = json.load(f)
+                lstm_mae = m['results']['test_mae_original']
+                print(f"✅ [LSTM] MAE (original scale): {lstm_mae}")
+            else:
+                lstm_mae = None
+                print(f"⚠️ [LSTM] Metrics file not found")
+    except Exception as e:
+        print(f"❌ [LSTM] Load failed: {e}")
+        lstm_model = lstm_scaler_X = lstm_scaler_y = None
 
 
-def is_model_ready():
-    return model is not None and scaler_X is not None and scaler_y is not None
+def is_mlp_ready():
+    return mlp_model is not None and mlp_scaler_X is not None and mlp_scaler_y is not None
 
 
-# ===================== CONFIDENCE CALCULATION =====================
-def calculate_confidence(time_index):
+def is_lstm_ready():
+    return lstm_model is not None and lstm_scaler_X is not None and lstm_scaler_y is not None
+
+
+# =====================================================
+# INPUT BUILDERS
+# =====================================================
+def _fetch_readings():
     """
-    Calculate confidence score based on MAE and time decay
-
-    Args:
-        time_index: Forecast time index (0-5 for 6 predictions)
-
-    Returns:
-        Confidence percentage (0-100)
+    Fetch last 12 readings from Firebase.
+    Returns list of 12 reading dicts, ordered oldest → newest.
+    Raises ValueError if insufficient data.
     """
-    max_mae = 1.0
-    raw_accuracy = (1 - (model_mae / max_mae)) * 100
-    boost_factor = 1.2 if model_mae < 0.5 else 1.0
-    base_accuracy = min(95, raw_accuracy * boost_factor)
-    time_decay_factor = 1 - (time_index * 0.025)
-    confidence = base_accuracy * time_decay_factor
-    return round(max(50, min(95, confidence)), 2)
+    from firebase_admin import db
+
+    ref  = db.reference('/devices/esp32_001/readings')
+    data = ref.order_by_key().limit_to_last(LOOKBACK).get()
+
+    if not data or len(data) < LOOKBACK:
+        raise ValueError(f'Insufficient data: need {LOOKBACK}, got {len(data) if data else 0}')
+
+    return list(data.values())
 
 
-# ===================== CLASSIFICATION HELPER =====================
-def classify_air_quality(co, pm25):
-    """Classify air quality based on sensor values"""
-    if pm25 > 150 or co > 3.0:
+def _build_mlp_input(readings):
+    """
+    Build MLP input: (1, 96) flat — 12 timesteps × 8 features.
+    Applies scaler_X_mlp (96 means).
+    """
+    X = []
+    for r in readings:
+        for feat in FEATURES:
+            X.append(r.get(feat, 0))
+
+    X_arr    = np.array(X).reshape(1, -1)          # (1, 96)
+    X_scaled = mlp_scaler_X.transform(X_arr)
+    return X_scaled
+
+
+def _build_lstm_input(readings):
+    """
+    Build LSTM input: (1, 12, 8) 3D — NOT flattened.
+    Applies scaler_X_lstm (8 means, per-feature).
+    """
+    X = []
+    for r in readings:
+        row = [r.get(feat, 0) for feat in FEATURES]
+        X.append(row)
+
+    X_arr    = np.array(X)                          # (12, 8)
+    X_2d     = X_arr.reshape(-1, len(FEATURES))     # (12, 8) — same, just explicit
+    X_scaled = lstm_scaler_X.transform(X_2d)
+    X_3d     = X_scaled.reshape(1, LOOKBACK, len(FEATURES))  # (1, 12, 8)
+    return X_3d
+
+
+# =====================================================
+# SAFE INVERSE TRANSFORM
+# =====================================================
+def safe_inverse_transform(y_pred_scaled, scaler_y):
+    """
+    Inverse transform scaled predictions.
+    Clips all features to >= 0 EXCEPT temp (index 6), which can be negative.
+    """
+    y_pred = scaler_y.inverse_transform(y_pred_scaled)  # (1, 8)
+    for i in range(y_pred.shape[1]):
+        if i != TEMP_IDX:
+            y_pred[:, i] = np.maximum(y_pred[:, i], 0)
+    return y_pred
+
+
+# =====================================================
+# HELPERS
+# =====================================================
+def _pred_to_dict(values):
+    """Convert prediction array (8,) to feature dict."""
+    return {feat: round(float(v), 4) for feat, v in zip(FEATURES, values)}
+
+
+def classify_air_quality(pred_dict):
+    """
+    Classify air quality based on 8-feature prediction.
+    Returns (label, level): label ∈ ['BAIK', 'WASPADA', 'BURUK'], level ∈ [0, 1, 2]
+    """
+    co    = pred_dict.get('CO',    0)
+    pm25  = pred_dict.get('PM25',  0)
+    pm10  = pred_dict.get('PM10',  0)
+    no2   = pred_dict.get('NO2',   0)
+    ozone = pred_dict.get('ozone', 0)
+
+    if pm25 > 150 or co > 3.0 or pm10 > 350 or no2 > 400 or ozone > 240:
         return 'BURUK', 2
-    elif pm25 > 100 or co > 2.0:
+    elif pm25 > 55 or co > 1.5 or pm10 > 150 or no2 > 200 or ozone > 120:
         return 'WASPADA', 1
     else:
         return 'BAIK', 0
 
 
-# ===================== SAFE INVERSE TRANSFORM =====================
-def safe_inverse_transform(y_pred_scaled, scaler_y):
+def calculate_confidence(mae, time_index=0):
     """
-    Inverse transform with clipping to prevent negative values
-
-    Args:
-        y_pred_scaled: Scaled predictions from model
-        scaler_y: StandardScaler for y values
-
-    Returns:
-        Clipped predictions (all values >= 0)
+    Confidence score based on MAE magnitude and time decay.
+    time_index 0 = current forecast step.
     """
-    y_pred = scaler_y.inverse_transform(y_pred_scaled)
-    y_pred = np.maximum(y_pred, 0)
-    return y_pred
+    if mae is None:
+        return 70.0
+    max_mae      = 50.0   # upper bound for normalization (original scale)
+    base         = max(50, min(95, (1 - mae / max_mae) * 100 * 1.1))
+    decayed      = base * (1 - time_index * 0.02)
+    return round(max(50, min(95, decayed)), 2)
 
 
-# ===================== FETCH + PREPARE INPUT (shared helper) =====================
-def _fetch_readings_and_build_input():
-    """
-    Fetch last 12 readings from Firebase and build scaled input array.
-    Returns: (readings list, X_scaled np.array, latest dict) or raises Exception.
-    """
-    from firebase_admin import db
-
-    ref = db.reference('/devices/esp32_001/readings')
-    data = ref.order_by_key().limit_to_last(12).get()
-
-    if not data or len(data) < 12:
-        raise ValueError(f'Insufficient data (need 12, got {len(data) if data else 0})')
-
-    readings = list(data.values())
-
-    X = []
-    for r in readings:
-        X.extend([
-            r.get('CO', 0),
-            r.get('CO2', 0),
-            r.get('PM25', 0),
-            r.get('PM10', 0)
-        ])
-    X = np.array(X).reshape(1, -1)
-    X_scaled = scaler_X.transform(X)
-
-    return readings, X_scaled
+def _metrics_payload(mae):
+    return {
+        'mae_original_scale': round(float(mae), 4) if mae is not None else None,
+        'confidence':         calculate_confidence(mae, 0)
+    }
 
 
-# ===================== GET LATEST PREDICTION =====================
+def _latest_dict(reading):
+    return {feat: round(float(reading.get(feat, 0)), 4) for feat in FEATURES}
+
+
+# =====================================================
+# ROUTES
+# =====================================================
+
+# ── Current classification (rule-based, no model needed) ──────────────
 @prediction_bp.route('/prediction/latest', methods=['GET'])
 def get_latest_prediction():
-    """
-    Get current air quality classification
-    """
+    """Current air quality status from latest Firebase reading."""
     try:
         from firebase_admin import db
 
-        ref = db.reference('/devices/esp32_001/latest')
-        data = ref.get()
-
+        data = db.reference('/devices/esp32_001/latest').get()
         if not data:
-            return jsonify({
-                'status': 'error',
-                'message': 'No sensor data available'
-            }), 404
+            return jsonify({'status': 'error', 'message': 'No sensor data'}), 404
 
-        co = data.get('CO', 0)
-        pm25 = data.get('PM25', 0)
-        label, class_idx = classify_air_quality(co, pm25)
-        confidence = calculate_confidence(0)
+        current     = _latest_dict(data)
+        label, lvl  = classify_air_quality(current)
 
-        result = {
-            'label': label,
-            'confidence': confidence,
-            'timestamp': data.get('timestamp', datetime.now().isoformat()),
-            'current_values': {
-                'CO': round(co, 2),
-                'CO2': round(data.get('CO2', 0), 2),
-                'PM25': round(pm25, 2),
-                'PM10': round(data.get('PM10', 0), 2)
-            }
-        }
-
-        return jsonify(result)
+        return jsonify({
+            'status':         'success',
+            'label':          label,
+            'level':          lvl,
+            'current_values': current,
+            'timestamp':      data.get('timestamp', datetime.now().isoformat())
+        })
 
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# ===================== SINGLE-STEP FORECAST (t+12, 1 hour ahead) =====================
-@prediction_bp.route('/forecast/single', methods=['GET'])
-def get_single_forecast():
+# ── MLP single-step forecast (t+12, 1 hour ahead) ────────────────────
+@prediction_bp.route('/forecast/mlp', methods=['GET'])
+def get_mlp_forecast():
     """
-    Predict air quality exactly 1 hour ahead (t+12).
-    Uses last 12 readings (5-min intervals = 1 hour history).
-    Input:  12 × 4 = 48 features
-    Output: 4 values — CO, CO2, PM2.5, PM10 at t+60min
-
-    Model output shape handling:
-      (1, 4)  → already single-step, use directly
-      (1, 24) → 6-step model, take last step (index 5 = t+60min)
+    Predict all 8 air quality parameters 1 hour ahead using MLP.
+    Input:  (1, 96) flat — 12 timesteps × 8 features
+    Output: (1, 8)  — CO, CO2, PM25, PM10, NO2, ozone, temp, humidity at t+60min
     """
     try:
-        if not is_model_ready():
-            return jsonify({
-                'status': 'error',
-                'message': 'ML model not loaded'
-            }), 503
+        if not is_mlp_ready():
+            return jsonify({'status': 'error', 'message': 'MLP model not loaded'}), 503
 
-        readings, X_scaled = _fetch_readings_and_build_input()
+        readings  = _fetch_readings()
+        X_scaled  = _build_mlp_input(readings)
 
-        # Current values from latest reading
-        latest = readings[-1]
-        current = {
-            'CO':   round(float(latest.get('CO', 0)), 2),
-            'CO2':  round(float(latest.get('CO2', 0)), 2),
-            'PM25': round(float(latest.get('PM25', 0)), 2),
-            'PM10': round(float(latest.get('PM10', 0)), 2)
-        }
+        y_scaled  = mlp_model.predict(X_scaled, verbose=0)
+        y_pred    = safe_inverse_transform(y_scaled, mlp_scaler_y)
+        pred_dict = _pred_to_dict(y_pred.flatten())
 
-        # Predict
-        y_pred_scaled = model.predict(X_scaled, verbose=0)
-        y_pred = safe_inverse_transform(y_pred_scaled, scaler_y)
-        flat = y_pred.flatten()
-
-        # Handle both single-step and multi-step model outputs
-        if len(flat) == 4:
-            # Model trained as single-step → use all 4 outputs
-            co, co2, pm25, pm10 = flat
-        elif len(flat) == 24:
-            # Model trained as 6-step (6 × 4 = 24) → take last step (t+60min)
-            co, co2, pm25, pm10 = flat.reshape(6, 4)[5]
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': f'Unexpected model output shape: {y_pred.shape}. Expected (1,4) or (1,24).'
-            }), 500
-
-        # Safety clip
-        co   = max(0.0, float(co))
-        co2  = max(0.0, float(co2))
-        pm25 = max(0.0, float(pm25))
-        pm10 = max(0.0, float(pm10))
-
-        label, _ = classify_air_quality(co, pm25)
+        label, lvl = classify_air_quality(pred_dict)
+        current    = _latest_dict(readings[-1])
 
         return jsonify({
-            'status': 'success',
-            'prediction': {
-                'label': label,
-                'values': {
-                    'CO':   round(co, 2),
-                    'CO2':  round(co2, 2),
-                    'PM25': round(pm25, 2),
-                    'PM10': round(pm10, 2)
-                },
+            'status':      'success',
+            'model':       'MLP',
+            'prediction':  {
+                'label':       label,
+                'level':       lvl,
+                'values':      pred_dict,
                 'target_time': (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
             },
-            'current': current,
-            'metrics': {
-                'mae':          model_mae,
-                'mse':          round(model_mae ** 2, 4),
-                'architecture': '64-32'
-            },
+            'current':      current,
+            'metrics':      _metrics_payload(mlp_mae),
             'generated_at': datetime.now().isoformat()
         })
 
     except ValueError as ve:
         return jsonify({'status': 'error', 'message': str(ve)}), 400
     except Exception as e:
-        import traceback
-        print(f"❌ Single forecast error: {str(e)}")
-        print(traceback.format_exc())
+        import traceback; traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# ===================== HOURLY FORECAST =====================
-@prediction_bp.route('/forecast/hourly', methods=['GET'])
-def get_hourly_forecast():
+# ── LSTM single-step forecast (t+12, 1 hour ahead) ───────────────────
+@prediction_bp.route('/forecast/lstm', methods=['GET'])
+def get_lstm_forecast():
     """
-    Forecast air quality for next 1 hour (6 intervals @ 10min).
-    Returns forecast with MAE-based confidence scores.
-    WITH NEGATIVE VALUE PROTECTION.
+    Predict all 8 air quality parameters 1 hour ahead using LSTM.
+    Input:  (1, 12, 8) 3D tensor — NOT flattened
+    Output: (1, 8)  — CO, CO2, PM25, PM10, NO2, ozone, temp, humidity at t+60min
     """
     try:
-        if not is_model_ready():
-            return jsonify({
-                'status': 'error',
-                'message': 'ML model not loaded'
-            }), 503
+        if not is_lstm_ready():
+            return jsonify({'status': 'error', 'message': 'LSTM model not loaded'}), 503
 
-        readings, X_scaled = _fetch_readings_and_build_input()
+        readings  = _fetch_readings()
+        X_scaled  = _build_lstm_input(readings)
 
-        y_pred_scaled = model.predict(X_scaled, verbose=0)
-        y_pred = safe_inverse_transform(y_pred_scaled, scaler_y)
+        y_scaled  = lstm_model.predict(X_scaled, verbose=0)
+        y_pred    = safe_inverse_transform(y_scaled, lstm_scaler_y)
+        pred_dict = _pred_to_dict(y_pred.flatten())
 
-        # Reshape to (6, 4)
-        forecast = y_pred.reshape(6, 4)
-
-        result = []
-        base_time = datetime.now()
-
-        for i, values in enumerate(forecast):
-            co, co2, pm25, pm10 = values
-            time_offset = (i + 1) * 10
-
-            co   = max(0, float(co))
-            co2  = max(0, float(co2))
-            pm25 = max(0, float(pm25))
-            pm10 = max(0, float(pm10))
-
-            label, _ = classify_air_quality(co, pm25)
-            confidence = calculate_confidence(i)
-
-            result.append({
-                'time': (base_time + timedelta(minutes=time_offset)).strftime('%H:%M'),
-                'label': label,
-                'confidence': confidence,
-                'values': {
-                    'CO':   round(co, 2),
-                    'CO2':  round(co2, 2),
-                    'PM25': round(pm25, 2),
-                    'PM10': round(pm10, 2)
-                }
-            })
+        label, lvl = classify_air_quality(pred_dict)
+        current    = _latest_dict(readings[-1])
 
         return jsonify({
-            'status': 'success',
-            'forecast': result,
-            'generated_at': datetime.now().isoformat(),
-            'metrics': {
-                'mae': model_mae,
-                'base_confidence': calculate_confidence(0),
-                'samples': 355
-            }
+            'status':      'success',
+            'model':       'LSTM',
+            'prediction':  {
+                'label':       label,
+                'level':       lvl,
+                'values':      pred_dict,
+                'target_time': (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
+            },
+            'current':      current,
+            'metrics':      _metrics_payload(lstm_mae),
+            'generated_at': datetime.now().isoformat()
         })
 
     except ValueError as ve:
         return jsonify({'status': 'error', 'message': str(ve)}), 400
     except Exception as e:
-        import traceback
-        print(f"❌ Forecast error: {str(e)}")
-        print(traceback.format_exc())
+        import traceback; traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# ===================== MODEL INFO =====================
+# ── Side-by-side comparison ──────────────────────────────────────────
+@prediction_bp.route('/forecast/compare', methods=['GET'])
+def get_forecast_compare():
+    """
+    Run both MLP and LSTM on the same input, return predictions side-by-side.
+    Useful for the thesis trade-off analysis.
+    """
+    try:
+        neither_ready = not is_mlp_ready() and not is_lstm_ready()
+        if neither_ready:
+            return jsonify({'status': 'error', 'message': 'No models loaded'}), 503
+
+        readings = _fetch_readings()
+        current  = _latest_dict(readings[-1])
+        result   = {'status': 'success', 'current': current, 'generated_at': datetime.now().isoformat()}
+
+        if is_mlp_ready():
+            X_mlp         = _build_mlp_input(readings)
+            y_mlp_scaled  = mlp_model.predict(X_mlp, verbose=0)
+            y_mlp         = safe_inverse_transform(y_mlp_scaled, mlp_scaler_y)
+            mlp_dict      = _pred_to_dict(y_mlp.flatten())
+            label_m, lv_m = classify_air_quality(mlp_dict)
+            result['mlp'] = {
+                'label':   label_m,
+                'level':   lv_m,
+                'values':  mlp_dict,
+                'metrics': _metrics_payload(mlp_mae)
+            }
+
+        if is_lstm_ready():
+            X_lstm        = _build_lstm_input(readings)
+            y_lstm_scaled = lstm_model.predict(X_lstm, verbose=0)
+            y_lstm        = safe_inverse_transform(y_lstm_scaled, lstm_scaler_y)
+            lstm_dict     = _pred_to_dict(y_lstm.flatten())
+            label_l, lv_l = classify_air_quality(lstm_dict)
+            result['lstm'] = {
+                'label':   label_l,
+                'level':   lv_l,
+                'values':  lstm_dict,
+                'metrics': _metrics_payload(lstm_mae)
+            }
+
+        result['target_time'] = (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
+        return jsonify(result)
+
+    except ValueError as ve:
+        return jsonify({'status': 'error', 'message': str(ve)}), 400
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ── Model info ───────────────────────────────────────────────────────
 @prediction_bp.route('/model/info', methods=['GET'])
 def model_info():
-    if not is_model_ready():
-        return jsonify({
-            'model_loaded': False,
-            'mode': 'rule-based'
-        })
+    """Info for both loaded models."""
+    info = {
+        'features':    FEATURES,
+        'n_features':  len(FEATURES),
+        'lookback':    LOOKBACK,
+        'temp_index':  TEMP_IDX
+    }
 
-    return jsonify({
-        'model_loaded': True,
-        'model_type': 'MLP Forecaster',
-        'input_shape': str(model.input_shape),
-        'output_shape': str(model.output_shape),
-        'output_activation': 'relu',
-        'total_params': int(model.count_params()),
-        'scalers_loaded': True,
-        'test_mae': model_mae,
-        'mse': round(model_mae ** 2, 4),
-        'base_confidence': calculate_confidence(0),
-        'negative_protection': 'enabled'
-    })
+    info['mlp'] = {
+        'loaded':        is_mlp_ready(),
+        'model_type':    'MLP',
+        'input_shape':   str(mlp_model.input_shape)   if is_mlp_ready() else None,
+        'output_shape':  str(mlp_model.output_shape)  if is_mlp_ready() else None,
+        'total_params':  int(mlp_model.count_params()) if is_mlp_ready() else None,
+        'mae_original':  round(float(mlp_mae), 4)     if mlp_mae else None,
+        'architecture':  'Input(96) → Dense(64,ReLU) → Dense(32,ReLU) → Output(8,Linear)'
+    }
+
+    info['lstm'] = {
+        'loaded':        is_lstm_ready(),
+        'model_type':    'LSTM',
+        'input_shape':   str(lstm_model.input_shape)   if is_lstm_ready() else None,
+        'output_shape':  str(lstm_model.output_shape)  if is_lstm_ready() else None,
+        'total_params':  int(lstm_model.count_params()) if is_lstm_ready() else None,
+        'mae_original':  round(float(lstm_mae), 4)     if lstm_mae else None,
+        'architecture':  'Input(12,8) → LSTM(64) → LSTM(32) → Dense(32,ReLU) → Output(8,Linear)'
+    }
+
+    return jsonify(info)
