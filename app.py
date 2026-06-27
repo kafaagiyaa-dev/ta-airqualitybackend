@@ -30,10 +30,18 @@ logger = logging.getLogger(__name__)
 CORS(app, resources={
     r"/api/*": {
         "origins": "*",
-        "methods": ["GET", "POST", "PUT", "DELETE"],
-        "allow_headers": ["Content-Type"]
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Access-Control-Request-Private-Network"]
     }
 })
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Private-Network'] = 'true'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Access-Control-Request-Private-Network'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    return response
 
 # =================== CONFIG ===================
 BASE_DIR = os.path.dirname(__file__)
@@ -83,13 +91,14 @@ except Exception as e:
 app.register_blueprint(sensor_bp, url_prefix='/api')
 app.register_blueprint(prediction_bp, url_prefix='/api')
 
-# =================== LOAD ML MODEL (runs on gunicorn too) ===================
+# =================== LOAD ML MODELS ===================
 with app.app_context():
-    logger.info("🔄 Loading ML model...")
-    if load_models():
-        logger.info("✅ ML forecaster loaded")
-    else:
-        logger.warning("⚠️ ML model not found - using rule-based classification")
+    logger.info("🔄 Loading ML models...")
+    try:
+        load_models()
+        logger.info("✅ ML models load attempt complete")
+    except Exception as e:
+        logger.warning(f"⚠️ ML model load error: {e}")
 
 # =================== ROUTES ===================
 @app.route('/')
@@ -111,7 +120,6 @@ def health_check():
         return jsonify({
             'status': 'healthy',
             'firebase_connected': latest is not None,
-            'model_loaded': is_model_ready(),
             'timestamp': datetime.now().isoformat()
         })
 
