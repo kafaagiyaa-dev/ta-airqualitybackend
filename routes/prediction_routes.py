@@ -7,7 +7,9 @@ Supports MLP and LSTM models with 8 features:
 from flask import Blueprint, jsonify, current_app
 import numpy as np
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+WIB = timezone(timedelta(hours=7))
 
 prediction_bp = Blueprint('prediction', __name__)
 
@@ -253,7 +255,7 @@ def get_latest_prediction():
             'label':          label,
             'level':          lvl,
             'current_values': current,
-            'timestamp':      data.get('timestamp', datetime.now().isoformat())
+            'timestamp':      data.get('timestamp', datetime.now(WIB).isoformat())
         })
 
     except Exception as e:
@@ -289,11 +291,11 @@ def get_mlp_forecast():
                 'label':       label,
                 'level':       lvl,
                 'values':      pred_dict,
-                'target_time': (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
+                'target_time': (datetime.now(WIB) + timedelta(hours=1)).strftime('%H:%M')
             },
             'current':      current,
             'metrics':      _metrics_payload(mlp_mae),
-            'generated_at': datetime.now().isoformat()
+            'generated_at': datetime.now(WIB).isoformat()
         })
 
     except ValueError as ve:
@@ -332,11 +334,11 @@ def get_lstm_forecast():
                 'label':       label,
                 'level':       lvl,
                 'values':      pred_dict,
-                'target_time': (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
+                'target_time': (datetime.now(WIB) + timedelta(hours=1)).strftime('%H:%M')
             },
             'current':      current,
             'metrics':      _metrics_payload(lstm_mae),
-            'generated_at': datetime.now().isoformat()
+            'generated_at': datetime.now(WIB).isoformat()
         })
 
     except ValueError as ve:
@@ -360,7 +362,7 @@ def get_forecast_compare():
 
         readings = _fetch_readings()
         current  = _latest_dict(readings[-1])
-        result   = {'status': 'success', 'current': current, 'generated_at': datetime.now().isoformat()}
+        result   = {'status': 'success', 'current': current, 'generated_at': datetime.now(WIB).isoformat()}
 
         if is_mlp_ready():
             X_mlp         = _build_mlp_input(readings)
@@ -388,7 +390,7 @@ def get_forecast_compare():
                 'metrics': _metrics_payload(lstm_mae)
             }
 
-        result['target_time'] = (datetime.now() + timedelta(hours=1)).strftime('%H:%M')
+        result['target_time'] = (datetime.now(WIB) + timedelta(hours=1)).strftime('%H:%M')
         return jsonify(result)
 
     except ValueError as ve:
