@@ -1,0 +1,25 @@
+{
+  "model_type": "LSTM",
+  "lookback": 12,
+  "horizon": 12,
+  "features": [
+    "CO",
+    "CO2",
+    "PM25",
+    "PM10",
+    "NO2",
+    "ozone",
+    "temp",
+    "humidity"
+  ],
+  "input_shape": [
+    12,
+    8
+  ],
+  "input_format": "3D_sequence",
+  "output_size": 8,
+  "scaler_type": "per_feature",
+  "train_samples": 65,
+  "test_samples": 17,
+  "total_samples": 82
+}

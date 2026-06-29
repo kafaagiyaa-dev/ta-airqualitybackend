@@ -1,0 +1,21 @@
+{
+  "model_type": "MLP",
+  "lookback": 12,
+  "horizon": 12,
+  "features": [
+    "CO",
+    "CO2",
+    "PM25",
+    "PM10",
+    "NO2",
+    "ozone",
+    "temp",
+    "humidity"
+  ],
+  "input_size": 96,
+  "output_size": 8,
+  "input_format": "flat_2D",
+  "train_samples": 65,
+  "test_samples": 17,
+  "total_samples": 82
+}
