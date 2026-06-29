@@ -1,0 +1,61 @@
+{
+  "model_architecture": {
+    "type": "MLP",
+    "input_nodes": 96,
+    "hidden1_neurons": 64,
+    "hidden2_neurons": 32,
+    "output_nodes": 8,
+    "hidden_activation": "relu",
+    "output_activation": "linear",
+    "total_parameters": 8552
+  },
+  "training_config": {
+    "epochs": 200,
+    "batch_size": 32,
+    "optimizer": "adam",
+    "loss": "mse",
+    "early_stopping_patience": 20,
+    "training_time_seconds": 2.07
+  },
+  "dataset": {
+    "train_samples": 65,
+    "test_samples": 17,
+    "total_samples": 82,
+    "lookback": 12,
+    "horizon": 12,
+    "features": [
+      "CO",
+      "CO2",
+      "PM25",
+      "PM10",
+      "NO2",
+      "ozone",
+      "temp",
+      "humidity"
+    ]
+  },
+  "results": {
+    "test_loss_mse": 0.11648610234260559,
+    "test_mae_scaled": 0.1909203976392746,
+    "test_mae_original": 2.9803968297118915,
+    "test_rmse_original": 6.653966328506311,
+    "test_mape_original_pct": 4.531357565531376,
+    "per_feature_mae": {
+      "CO": 0.04245438853319965,
+      "CO2": 0.005003087660845588,
+      "PM25": 5.245909746955423,
+      "PM10": 17.07554402070887,
+      "NO2": 0.0013107311215120195,
+      "ozone": 0.012589421999805114,
+      "temp": 0.1704910504868455,
+      "humidity": 1.2898721902286312
+    },
+    "epochs_trained": 21,
+    "final_train_loss": 0.6443380117416382,
+    "final_val_loss": 0.23462386429309845,
+    "final_train_mae": 0.3635753393173218,
+    "final_val_mae": 0.3119785189628601,
+    "negative_predictions_before_clip": 11,
+    "inference_time_ms_per_sample": 63.0932
+  }
+}
