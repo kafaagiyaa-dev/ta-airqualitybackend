@@ -15,12 +15,12 @@
     "optimizer": "adam",
     "loss": "mse",
     "early_stopping_patience": 20,
-    "training_time_seconds": 5.86
+    "training_time_seconds": 9.11
   },
   "dataset": {
-    "train_samples": 4752,
-    "test_samples": 1188,
-    "total_samples": 5940,
+    "train_samples": 4028,
+    "test_samples": 1007,
+    "total_samples": 5035,
     "lookback": 12,
     "horizon": 12,
     "features": [
@@ -35,27 +35,27 @@
     ]
   },
   "results": {
-    "test_loss_mse": 1.8377989530563354,
-    "test_mae_scaled": 0.6392618417739868,
-    "test_mae_original": 17.079990729674414,
-    "test_rmse_original": 53.17282378831617,
-    "test_mape_original_pct": 131.79374794673308,
+    "test_loss_mse": 2.483672618865967,
+    "test_mae_scaled": 0.7363415956497192,
+    "test_mae_original": 16.872999887114336,
+    "test_rmse_original": 49.69099013682762,
+    "test_mape_original_pct": 107.84131556529528,
     "per_feature_mae": {
-      "CO": 0.06269224423660173,
-      "CO2": 99.78014835463195,
-      "PM25": 16.709268422239155,
-      "PM10": 13.985702026572692,
-      "NO2": 0.10431065324166608,
-      "ozone": 0.005814990650485659,
-      "temp": 1.4084859293892087,
-      "humidity": 4.583503216433541
+      "CO": 0.06663347253090575,
+      "CO2": 86.06684922938842,
+      "PM25": 27.055280175914593,
+      "PM10": 15.924537086676226,
+      "NO2": 0.07674056031779476,
+      "ozone": 0.005218987251874117,
+      "temp": 1.2096605810195333,
+      "humidity": 4.579079003815334
     },
-    "epochs_trained": 24,
-    "final_train_loss": 0.19797329604625702,
-    "final_val_loss": 2.921689748764038,
-    "final_train_mae": 0.2335047572851181,
-    "final_val_mae": 0.7468617558479309,
-    "negative_predictions_before_clip": 168,
-    "inference_time_ms_per_sample": 48.1048
+    "epochs_trained": 21,
+    "final_train_loss": 0.2007250338792801,
+    "final_val_loss": 5.156120300292969,
+    "final_train_mae": 0.21956226229667664,
+    "final_val_mae": 0.9337994456291199,
+    "negative_predictions_before_clip": 319,
+    "inference_time_ms_per_sample": 70.3452
   }
 }
