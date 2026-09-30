@@ -15,7 +15,7 @@
     "optimizer": "adam",
     "loss": "mse",
     "early_stopping_patience": 20,
-    "training_time_seconds": 9.11
+    "training_time_seconds": 5.96
   },
   "dataset": {
     "train_samples": 4028,
@@ -35,27 +35,27 @@
     ]
   },
   "results": {
-    "test_loss_mse": 2.483672618865967,
-    "test_mae_scaled": 0.7363415956497192,
-    "test_mae_original": 16.872999887114336,
-    "test_rmse_original": 49.69099013682762,
-    "test_mape_original_pct": 107.84131556529528,
+    "test_loss_mse": 2.1388895511627197,
+    "test_mae_scaled": 0.6351373791694641,
+    "test_mae_original": 15.153424754076571,
+    "test_rmse_original": 46.795070868816445,
+    "test_mape_original_pct": 85.6075810505291,
     "per_feature_mae": {
-      "CO": 0.06663347253090575,
-      "CO2": 86.06684922938842,
-      "PM25": 27.055280175914593,
-      "PM10": 15.924537086676226,
-      "NO2": 0.07674056031779476,
-      "ozone": 0.005218987251874117,
-      "temp": 1.2096605810195333,
-      "humidity": 4.579079003815334
+      "CO": 0.03499704213301498,
+      "CO2": 82.87183211468937,
+      "PM25": 20.037323316253996,
+      "PM10": 13.771831247278572,
+      "NO2": 0.05979030323881852,
+      "ozone": 0.004174282830883751,
+      "temp": 0.8959589500280265,
+      "humidity": 3.5514907761598984
     },
-    "epochs_trained": 21,
-    "final_train_loss": 0.2007250338792801,
-    "final_val_loss": 5.156120300292969,
-    "final_train_mae": 0.21956226229667664,
-    "final_val_mae": 0.9337994456291199,
-    "negative_predictions_before_clip": 319,
-    "inference_time_ms_per_sample": 70.3452
+    "epochs_trained": 24,
+    "final_train_loss": 0.19988521933555603,
+    "final_val_loss": 3.289074182510376,
+    "final_train_mae": 0.21779575943946838,
+    "final_val_mae": 0.773737907409668,
+    "negative_predictions_before_clip": 512,
+    "inference_time_ms_per_sample": 52.5502
   }
 }

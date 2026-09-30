@@ -22,7 +22,7 @@
     "optimizer": "adam",
     "loss": "mse",
     "early_stopping_patience": 20,
-    "training_time_seconds": 34.66
+    "training_time_seconds": 29.68
   },
   "dataset": {
     "train_samples": 4028,
@@ -42,35 +42,35 @@
     ]
   },
   "results": {
-    "test_loss_mse": 1.9550414085388184,
-    "test_mae_scaled": 0.6287455558776855,
-    "test_mae_original": 16.515017097990416,
-    "test_rmse_original": 44.934336076351194,
-    "test_mape_original_pct": 68.4699028286239,
+    "test_loss_mse": 1.7607994079589844,
+    "test_mae_scaled": 0.5773459672927856,
+    "test_mae_original": 14.78510656364876,
+    "test_rmse_original": 42.491366479040515,
+    "test_mape_original_pct": 79.42112050197716,
     "per_feature_mae": {
-      "CO": 0.02545541270142397,
-      "CO2": 83.59726349230193,
-      "PM25": 24.781504993760716,
-      "PM10": 19.439610974672654,
-      "NO2": 0.05441474705545999,
-      "ozone": 0.0017846454436374157,
-      "temp": 0.78082950049907,
-      "humidity": 3.439273017488421
+      "CO": 0.021895132340381016,
+      "CO2": 74.18376435411106,
+      "PM25": 20.625113649188346,
+      "PM10": 18.96457179276922,
+      "NO2": 0.05615936642690354,
+      "ozone": 0.0015807260187380092,
+      "temp": 1.046931848816706,
+      "humidity": 3.3808356395187302
     },
     "epochs_trained": 24,
-    "final_train_loss": 0.14631526172161102,
-    "final_val_loss": 2.804063320159912,
-    "final_train_mae": 0.1633686125278473,
-    "final_val_mae": 0.6660448312759399,
-    "negative_predictions_before_clip": 281,
-    "inference_time_ms_per_sample": 48.1962
+    "final_train_loss": 0.14865919947624207,
+    "final_val_loss": 2.7210159301757812,
+    "final_train_mae": 0.1623910665512085,
+    "final_val_mae": 0.6471179723739624,
+    "negative_predictions_before_clip": 130,
+    "inference_time_ms_per_sample": 49.4332
   },
   "comparison_vs_mlp": {
     "mlp_parameters": 8552,
     "lstm_parameters": 32424,
     "param_ratio_lstm_vs_mlp": 3.79,
-    "mlp_inference_ms": 70.3452,
-    "lstm_inference_ms": 48.1962,
-    "infer_ratio_lstm_vs_mlp": 0.69
+    "mlp_inference_ms": 52.5502,
+    "lstm_inference_ms": 49.4332,
+    "infer_ratio_lstm_vs_mlp": 0.94
   }
 }
